@@ -1,0 +1,750 @@
+---
+title: "变量筛选"
+output:
+  html_notebook: default
+  pdf_document: default
+---
+
+## 一）变量筛选
+
+### 1、消除共线性
+
+**共线性识别**
+
+考察相关矩阵的特征值，发现共线性十分明显，15个变量的特征值见下表：
+
+```{r}
+a = read.table("P320-1.txt",header=T)
+X = a[,-16]
+
+# 共线性
+
+# X的相关矩阵
+cor_mat <- cor(X, use = "pairwise.complete.obs")
+cor_mat
+
+eig <- eigen(cor_mat)  #相关矩阵的特征值和特征向量
+
+eig$values      # 特征值
+df_eig <- data.frame(lambda = eig$values)
+
+eig_vals <- eig$values
+reciprocal_sum <- sum(1 / eig_vals)  #计算特征值倒数之和
+
+p <- 15
+
+# 用条件数判断是否有多重共线性 (cn>15很强的共线性 >30必须消除)
+condition_number <- sqrt(max(eig$values) / min(eig$values))
+condition_number # 条件数>30说明多重共线性严重
+```
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{$\lambda$ 取值（保留三位小数）}
+\renewcommand{\arraystretch}{1.18}
+
+% 三列并排
+\begin{tabular}{c r c r c r}
+\toprule
+$\lambda$ & 数值 & $\lambda$ & 数值 & $\lambda$ & 数值 \\
+\midrule
+
+1  & 4.528 & 6  & 0.960 & 11 & 0.166 \\
+2  & 2.755 & 7  & 0.613 & 12 & 0.127 \\
+3  & 2.054 & 8  & 0.472 & 13 & 0.114 \\
+4  & 1.348 & 9  & 0.371 & 14 & 0.046 \\
+5  & 1.223 & 10 & 0.216 & 15 & 0.005 \\
+
+\bottomrule
+\end{tabular}
+
+\end{threeparttable}
+\end{table}
+
+条件数是30.50515，大于30，说明必须采取措施消除共线性；特征数倒数之和为264.613，远大于预测变量数的5倍（15\* 5=75) 。因此，X间存在严重的多重共线性，必须先消除。
+
+考察方差膨胀因子，对中心化和标准化的数据拟合的线性模型的初始OLS分析结果如下：
+
+```{r}
+# X的VIF
+library(car)
+
+model <- lm(Y ~ ., data = a)
+
+vif_values <- vif(model)
+vif_values
+
+
+a <- as.data.frame(scale(a))
+# 拟合模型
+model_15 <- lm(Y ~ X1 + X2 + X3 + X4 + X5 + X6 + X7 + X8 + X9 + X10 +
+                 X11 + X12 + X13 + X14 + X15,
+            data = a)
+
+summary(model)
+
+```
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{全模型的回归系数及 VIF}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lrrrrr}
+\toprule
+变量 & 系数 & 标准误 & t值 & p值 & VIF \\
+\midrule
+(截距) & 1764 & 437.3 & 4.034 & 0.000215*** & -- \\
+X1  & 1.905   & 0.924 & 2.063 & 0.045078* & 4.114 \\
+X2  & -1.938  & 1.108 & -1.748 & 0.087415. & 6.144 \\
+X3  & -3.100  & 1.902 & -1.630 & 0.110164 & 3.968 \\
+X4  & -9.065  & 8.486 & -1.068 & 0.291246 & 7.470 \\
+X5  & -106.8  & 69.78 & -1.531 & 0.132936 & 4.308 \\
+X6  & -17.16  & 11.86 & -1.447 & 0.155095 & 4.861 \\
+X7  & -0.651  & 1.768 & -0.368 & 0.714397 & 3.995 \\
+X8  & 0.00360 & 0.00403 & 0.894 & 0.376132 & 1.658 \\
+X9  & 4.460   & 1.327 & 3.360 & 0.001618** & 6.780 \\
+X10 & -0.187  & 1.662 & -0.113 & 0.910840 & 2.842 \\
+X11 & -0.167  & 3.227 & -0.052 & 0.958865 & 8.717 \\
+X12 & -0.672  & 0.491 & -1.369 & 0.177980 & 98.640 \\
+X13 & 1.340   & 1.006 & 1.333 & 0.189508 & 104.982 \\
+X14 & 0.086   & 0.148 & 0.585 & 0.561697 & 4.229 \\
+X15 & 0.107   & 1.169 & 0.091 & 0.927690 & 1.907 \\
+\bottomrule
+\end{tabular}
+
+\begin{tablenotes}
+\footnotesize
+\item 残差标准误 = 34.93 (44 自由度); 决定系数R$^{2}$ = 0.7649, 调整后R$^{2}$ = 0.6847
+\item F统计量= 9.542 (15与44自由度), p值 = 2.193e-09
+\end{tablenotes}
+
+\end{threeparttable}
+\end{table}
+
+由表中结果可知，X12和X13的VIF远大于10，也证明了共线性存在。
+
+**共线性消除**
+
+鉴于本数据存在严重多重共线性，因此采用**岭回归**对变量进行筛选，以消除多重共线性。绘制各变量的岭轨迹图（由于15条曲线绘制在一张图中难以清晰辨别各变量曲线的规律，因此将曲线分在四张图中绘制，同时控制每张图的y轴范围相同）：
+
+```{r}
+# 消除多重共线性
+
+library(olsrr)
+library(lmridge)
+
+a <- as.data.frame(scale(a))
+
+
+# 拟合岭回归
+fit_ridge <- lmridge(Y ~ ., data = a, K = seq(0, 1, by = 0.01))
+
+# 提取岭回归系数矩阵（每一列是一个变量）
+coef_mat <- t(fit_ridge$coef)   # K 行 × p 列
+K_values <- fit_ridge$K         # 横轴为岭参数 K
+var_names <- colnames(coef_mat) # 自变量名称
+p <- length(var_names)          # 应为 15
+ylim_all <- range(coef_mat)  # 所有变量的最小和最大值
+
+# 设置每张图要画的变量索引
+groups <- list(
+  1:4,
+  5:8,
+  9:12,
+  13:15
+)
+
+# 绘图布局：2x2
+par(mfrow = c(2, 2))
+
+# 绘制四张图
+for (i in 1:4) {
+  vars <- groups[[i]]
+  
+  # 先画空白图框
+  plot(K_values, coef_mat[, vars[1]],
+       type = "n",
+       ylim = ylim_all,
+       xlab = "K",
+       ylab = "β*_j(K)",
+       main = paste0("X", 
+                     paste(vars, collapse = ", "))
+  )
+  
+  # 逐条绘图
+  for (j in vars) {
+    lines(K_values, coef_mat[, j], lwd = 2, col = j)
+  }
+  
+  # 添加图例
+  legend("topright", legend = var_names[vars],
+         col = vars, lwd = 1, cex = 0.5)
+}
+```
+
+![](images/b065002a1c46d4b425c2c43f69626b1c.png)
+
+图例：各变量岭估计参数随K变化的轨迹图（控制Y轴范围相同）
+
+接下来遵循共线性情况下筛选变量的**两条原则**进行变量筛选
+
+1.  系数稳定，且绝对值小： 将**7，8，10，11，15**删除；
+2.  系数不稳定，但回归系数随着K的增大而趋向于0： 将**12，13**删除。
+
+将剩下来8个变量重新进行OLS分析，结果列于下表：
+
+```{r}
+# 消除多重共线性后重新拟合模型
+model_8 <- lm(Y ~ X1 + X2 + X3 + X4 + X5 + X6 + X9  + X14 ,
+              data = a)
+
+summary(model_8)
+
+vif_values <- car::vif(model_8)
+vif_values
+```
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{剔除共线性变量后的回归系数估计结果及 VIF}
+\renewcommand{\arraystretch}{1.18} % 行距
+\begin{tabular}{lrrrrr}
+\toprule
+变量 & 估计值（Estimate） & 标准误 & t 值 & p 值 & VIF \\
+\midrule
+(截距) & -5.206e-16 & 0.06961 & 0.000 & 1.00000 & -- \\
+X1  & 0.3311 & 0.1198 & 2.764 & 0.00792** & 2.912 \\
+X2  & -0.3512 & 0.1060 & -3.314 & 0.00170** & 2.279 \\
+X3  & -0.2168 & 0.1039 & -2.087 & 0.04192* & 2.191 \\
+X4  & -0.1546 & 0.1634 & -0.946 & 0.34872 & 5.420 \\
+X5  & -0.2212 & 0.1336 & -1.656 & 0.10383 & 3.621 \\
+X6  & -0.2699 & 0.1017 & -2.655 & 0.01056* & 2.097 \\
+X9  & 0.6922 & 0.1326 & 5.221 & 3.31e-06*** & 3.568 \\
+X14 & 0.2301 & 0.08320 & 2.766 & 0.00788** & 1.405 \\
+\bottomrule
+\end{tabular}
+
+\begin{tablenotes}
+\footnotesize
+\item 残差标准误：0.5392（自由度 51）
+\item 决定系数：R$^{2}$ = 0.7487；调整后 R$^{2}$ = 0.7093
+\item F 统计量：18.99（8 与 51 自由度），p 值 = 7.67e-13
+\end{tablenotes}
+
+\end{threeparttable}
+\end{table}
+
+由表可见，所有8个变量的VIF都很小，说明共线性问题已被消除。
+
+同时，计算相关矩阵特征值如下：
+
+```{r}
+# X的相关矩阵
+a_8 = a[,c(1,2,3,4,5,6,9,14)]
+cor_mat_8 <- cor(a_8, use = "pairwise.complete.obs")
+cor_mat_8
+
+eig_8 <- eigen(cor_mat_8)  #相关矩阵的特征值和特征向量
+
+eig_8$values      # 特征值
+df_eig_8 <- data.frame(lambda = eig_8$values)
+write.csv(df_eig_8, "lambda_8.csv", row.names = TRUE)
+
+eig_vals_8 <- eig_8$values
+reciprocal_sum_8 <- sum(1 / eig_vals_8)  #计算特征值倒数之和
+
+
+is_large <- reciprocal_sum > 5 * 8 # 5. 判断是否大于 5 * p
+
+cat("特征值倒数之和 =", reciprocal_sum_8, "\n")
+cat("预测变量个数 p =", 8, "\n")
+cat("5 * p =", 8 * 5, "\n")
+cat("是否满足 '特征值倒数之和 > 5 * p' ?", is_large, "\n")
+
+condition_number <- sqrt(max(eig_8$values) / min(eig_8$values))
+condition_number # 条件数>30说明多重共线性严重
+```
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{删除有共线性变量后的剩余变量的$\lambda$ 取值}
+\renewcommand{\arraystretch}{1.18}
+
+\begin{tabular}{c r c r c r}
+\toprule
+$\lambda$ & 数值 & $\lambda$ & 数值 & $\lambda$ & 数值 \\
+\midrule
+
+1 & 2.886  & 4 & 1.047 & 7 & 0.180 \\
+2 & 1.693  & 5 & 0.475 & 8 & 0.094 \\
+3 & 1.230  & 6 & 0.394 &   &       \\
+
+\bottomrule
+\end{tabular}
+
+\end{threeparttable}
+\end{table}
+
+由结果可知，最大特征值为2.886，最小特征值为0.095，条件数为5.527；特征值倒数和为23.493，小于特征数的5倍。因此，由充分理由相信剩余8个变量无多重共线性。
+
+*解释——为什么*$X_7,X_8,X_{10},X_{11},X_{12},X_{13},X_{15}$ *会带来共线性问题*
+
+这些变量在经济/气候含义上高度重合，因此在统计上表现出强相关：
+
+1.  城市化 / 社会经济发展水平
+
+    $X_7,X_8,X_{10},X_{11}$都在描述城市化和社会经济发展水平。典型规律是，城市化高说明人口密度大($X_8$)、白领比例高（$X_{10}$）、低收入家庭比例低（$X_{11}$）、合理住房比例高（$X_7$）。
+
+    在删除这几个变量后，只保留少数代表变量（比如教育年限 $X_6$、每户人数 $X_5$、非白人比例 $X_9$等），对“社会经济/城市化”这一潜在因子的刻画已经足够。
+
+2.  污染水平
+
+    三种污染物都主要来自同样的工业和交通源（燃煤、机动车等），地区的工业化程度一旦确定，三种污染物的相对水平往往一起高或一起低，所以$X_{12},X_{13},X_{14}$彼此之间高度相关。
+
+    因此，保留一个代表指标（岭回归得到留下$X_{14}$，删除 $X_{12},X_{13}$​)，只用一个变量来代表“污染水平”这个潜在因子。
+
+3.  气候条件
+
+    降水量大、气温较高的地区通常空气湿度也大，因此 相对湿度$X_{15}$与降水量$X_1$和气温$X_2,X_3$有较强相关。
+
+因此，在每一组中保留少数代表性强、解释性好的变量，并删除其余冗余变量。剔除后，剩余自变量之间的相关性明显下降，各变量 VIF 值均在可接受范围内，多重共线性问题即消失。
+
+### 2、探索最优变量子集
+
+为比较不同方法得出的最优变量子集的差异，本部分分别采用向前选择、向后选择和$C_p$图，并选取不同阈值，试图从不同角度对数据进行解读，从而找到最符合本研究回归方程建立的目的的最优变量子集。
+
+**前向选择**
+
+以AIC为前向选择的评估标准，输出完整的前向选择的结果如下：
+
+```{r echo=FALSE}
+forward_selection_with_metrics <- function(data, response, predictors){
+  
+  # 初始状态：空模型
+  selected <- c()
+  remaining <- predictors
+  
+  # 保存结果的表
+  results <- data.frame(
+    variables = character(),
+    min_t = numeric(),
+    RMS = numeric(),
+    Cp = numeric(),
+    p = integer(),
+    AIC = numeric(),
+    BIC = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # 全模型（用于 Cp 的 MSE）
+  full_formula <- as.formula(
+    paste(response, "~", paste(predictors, collapse = "+"))
+  )
+  full_model <- lm(full_formula, data = data)
+  sigma2_full <- summary(full_model)$sigma^2     # 全模型残差方差
+  
+  # 前向选择过程
+  while(length(remaining) > 0){
+    
+    # 测试加入每个变量
+    aic_list <- c()
+    models_list <- list()
+    
+    for (var in remaining){
+      formula_test <- as.formula(
+        paste(response, "~", paste(c(selected, var), collapse = "+"))
+      )
+      model_test <- lm(formula_test, data = data)
+      aic_list[var] <- AIC(model_test)
+      models_list[[var]] <- model_test
+    }
+    
+    # 找出最优变量
+    best_var <- names(which.min(aic_list))
+    selected <- c(selected, best_var)
+    remaining <- setdiff(remaining, best_var)
+    
+    # 用当前选择的变量拟合模型
+    final_formula <- as.formula(
+      paste(response, "~", paste(selected, collapse = "+"))
+    )
+    current_model <- lm(final_formula, data = data)
+    summ <- summary(current_model)
+    
+    # 计算各项指标
+    min_t <- min(abs(summ$coefficients[-1,3]))    # 去掉截距
+    RMS <- sqrt(mean(summ$residuals^2))
+    p_now <- length(selected)
+    RSS <- sum(residuals(current_model)^2)
+    Cp <- RSS/sigma2_full - (nrow(data) - 2*p_now)
+    
+    AIC_now <- AIC(current_model)
+    BIC_now <- BIC(current_model)
+    
+    # 把当前模型加入表格
+    results[nrow(results)+1,] <- list(
+      variables = paste(selected, collapse = ", "),
+      min_t = round(min_t, 3),
+      RMS = round(RMS, 3),
+      Cp = round(Cp, 2),
+      p = p_now,
+      AIC = round(AIC_now, 2),
+      BIC = round(BIC_now, 2)
+    )
+  }
+  
+  return(results)
+}
+
+```
+
+```{r}
+forward_result_matrix = forward_selection_with_metrics(data = a,
+                                        response = "Y",
+                                        predictors = c("X1","X2","X3","X4","X5","X6","X9","X14"))
+
+forward_result_matrix
+```
+
+# 表例：前向选择变量结果
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{逐步回归模型评价指标比较}
+\renewcommand{\arraystretch}{1.18} % 行距
+\begin{tabular}{lrrrrrrr}
+\toprule
+序号 & 变量组合 & min\_t & RMS & C\textsubscript{p} & p & AIC & BIC \\
+\midrule
+1 & X9 & 6.407 & 47.205 & 60.83 & 1 & 638.81 & 645.10 \\
+2 & X9, X6 & 4.396 & 40.793 & 32.74 & 2 & 623.29 & 631.67 \\
+3 & X9, X6, X2 & 3.444 & 37.056 & 19.23 & 3 & 613.77 & 624.24 \\
+4 & X9, X6, X2, X14 & 2.778 & 34.701 & 12.22 & 4 & 607.89 & 620.45 \\
+5 & X9, X6, X2, X14, X1 & 1.943 & 32.821 & 7.45 & 5 & 603.20 & 617.86 \\
+6 & X9, X6, X2, X14, X1, X3 & 1.893 & 31.765 & 5.81 & 6 & 601.28 & 618.03 \\
+7 & X9, X6, X2, X14, X1, X3, X5 & 1.385 & 31.195 & 5.89 & 7 & 601.10 & 619.95 \\
+8 & X9, X6, X2, X14, X1, X3, X5, X4 & 0.946 & 30.925 & 7.00 & 8 & 602.06 & 623.00 \\
+\bottomrule
+\end{tabular}
+\end{threeparttable}
+\end{table}
+
+上表列出了前向选择的结果，每一行给出了进入回归方程的的变量对应的最小的$t$检验的绝对值、RMS、$C_p$值、AIC值和BIC值。两个停止规则为：
+
+1.  若最小的$t$检验的绝对值小于$t_{0.05}(n-p)$
+
+2.  若最小的$t$检验的绝对值小于1
+
+第一个规则较为严格，过程中止于第6个模型，即保留$X_1,X_2,X_3,X_6,X_9,X_{14}$ ($t_{0.05}(n-p)$ = $t_{0.05}(51)$ = 1.676)；第二个规则较为看宽松，过程中止于第7个模型，即保留$X_1,X_2,X_3,X_5,X_6,X_9,X_{14}$
+
+**后向剔除**
+
+以AIC为前向选择的评估标准，输出完整的后向剔除的结果如下：
+
+```{r}
+backward_elimination_with_metrics <- function(data, response, predictors){
+  
+  # 初始：全模型
+  selected <- predictors
+  
+  # 保存结果
+  results <- data.frame(
+    variables = character(),
+    min_t = numeric(),
+    RMS = numeric(),
+    Cp = numeric(),
+    p = integer(),
+    AIC = numeric(),
+    BIC = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # 用于计算 Cp 的 MSE
+  full_formula <- as.formula(
+    paste(response, "~", paste(predictors, collapse = "+"))
+  )
+  full_model <- lm(full_formula, data = data)
+  sigma2_full <- summary(full_model)$sigma^2
+  
+  # 后向剔除循环：直到只剩 1 个变量
+  while(length(selected) > 1){
+    
+    # 为每个当前变量计算“删除该变量后”的模型 AIC
+    aic_list <- c()
+    models_list <- list()
+    
+    for (var in selected){
+      remain_vars <- setdiff(selected, var)
+      formula_test <- as.formula(
+        paste(response, "~", paste(remain_vars, collapse = "+"))
+      )
+      model_test <- lm(formula_test, data = data)
+      aic_list[var] <- AIC(model_test)
+      models_list[[var]] <- model_test
+    }
+    
+    # 找出删除后 AIC 最小的变量
+    worst_var <- names(which.min(aic_list))
+    selected <- setdiff(selected, worst_var)
+    
+    # 拟合当前模型
+    final_formula <- as.formula(
+      paste(response, "~", paste(selected, collapse = "+"))
+    )
+    current_model <- lm(final_formula, data = data)
+    summ <- summary(current_model)
+    
+    # 计算评估指标
+    min_t <- min(abs(summ$coefficients[-1,3]))   # 去掉截距
+    RMS <- sqrt(mean(summ$residuals^2))
+    p_now <- length(selected)
+    RSS <- sum(residuals(current_model)^2)
+    Cp <- RSS/sigma2_full - (nrow(data) - 2*p_now)
+    
+    AIC_now <- AIC(current_model)
+    BIC_now <- BIC(current_model)
+    
+    # 记录结果
+    results[nrow(results)+1,] <- list(
+      variables = paste(selected, collapse = ", "),
+      min_t = round(min_t, 3),
+      RMS = round(RMS, 3),
+      Cp = round(Cp, 2),
+      p = p_now,
+      AIC = round(AIC_now, 2),
+      BIC = round(BIC_now, 2)
+    )
+  }
+  
+  return(results)
+}
+
+```
+
+```{r}
+backward_result = backward_elimination_with_metrics(data = a,
+                                  response = "Y",
+                                  predictors = c("X1","X2","X3","X4","X5","X6","X9","X14")
+                                  )
+backward_result
+```
+
+上表列出了后向剔除的结果。两个停止规则为：
+
+1.  若最小的$t$检验的绝对值大于$t_{0.05}(n-p)$
+
+2.  若最小的$t$检验的绝对值大于1
+
+第一个规则保留$X_1,X_2,X_3,X_6,X_9,X_{14}$ ($t_{0.05}(n-p)$ = $t_{0.05}(51)$ = 1.676)；第二个规则保留$X_1,X_2,X_3,X_5,X_6,X_9,X_{14}$ 。
+
+可以发现，前向选择和后向剔除的结果完全一致；
+
+两个阈值带来的变量选取差异体现在$X_5$ 的选取上：添加$X_5$后，尽管模型的AIC下降0.18，但BIC上升1.82且$C_p$ 与$p$ 的差值增大，从模型性能评估考虑，应当将$X_5$ 剔除；同时，$X_5$ 表示每户人口数，从现实角度看，每户人口数与死亡率几乎没有关系，因此将$X_5$ 剔除不违背现实情况。
+
+基于$C_p统计量$
+
+消除共线性后的模型总共剩余8个变量，数量适中，可以采用$C_p统计量$ 进行进一步验证。建立的256个回归方程，256个回归方程的$C_p$ 值见下表（），散点图见（），基于$C_p统计量$ 的最优变量子集（选取前5个）见表（）：
+
+```{r}
+library(ggplot2)
+
+best_subset_selection <- function(data, response, predictors){
+  
+  n <- nrow(data)
+  results <- data.frame(
+    variables = character(),
+    min_t = numeric(),
+    RMS = numeric(),
+    Cp = numeric(),
+    p = integer(),
+    AIC = numeric(),
+    BIC = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # 计算全模型 sigma^2
+  full_formula <- as.formula(
+    paste(response, "~", paste(predictors, collapse = "+"))
+  )
+  full_model <- lm(full_formula, data = data)
+  sigma2_full <- summary(full_model)$sigma^2
+  
+  # 遍历所有组合
+  for (k in 1:length(predictors)){
+    combs <- combn(predictors, k, simplify = FALSE)
+    
+    for (vars in combs){
+      formula <- as.formula(
+        paste(response, "~", paste(vars, collapse = "+"))
+      )
+      model <- lm(formula, data = data)
+      summ <- summary(model)
+      
+      min_t <- min(abs(summ$coefficients[-1,3]))
+      RMS <- sqrt(mean(summ$residuals^2))
+      RSS <- sum(residuals(model)^2)
+      
+      Cp <- RSS/sigma2_full - (n - 2*length(vars))
+      AIC_now <- AIC(model)
+      BIC_now <- BIC(model)
+      
+      results[nrow(results)+1,] <- list(
+        variables = paste(vars, collapse = ", "),
+        min_t = round(min_t, 3),
+        RMS = round(RMS, 3),
+        Cp = round(Cp, 3),
+        p = length(vars),
+        AIC = round(AIC_now, 2),
+        BIC = round(BIC_now, 2)
+      )
+    }
+  }
+  
+  return(results)
+}
+
+```
+
+```{r}
+predictors <- c("X1","X2","X3","X4","X5","X6","X9","X14")
+
+all_models <- best_subset_selection(
+  data = a,
+  response = "Y",
+   predictors = c("X1","X2","X3","X4","X5","X6","X9","X14")
+)
+
+```
+
+\begin{table}[H]
+\centering
+\caption{Cp 统计量（对应于所有变量组合）}
+\renewcommand{\arraystretch}{1.20}
+
+\begin{tabular}{c c || c c || c c || c c}
+\toprule
+变量 & $C_p$ & 变量 & $C_p$ & 变量 & $C_p$ & 变量 & $C_p$ \\
+\midrule
+
+1 & 1.41 	& 1 5 & 3.41 	& 1 6 & 3.33 		& 1 5 6 & 5.32 \\
+2 & 44.40 	& 2 5 & 45.62 	& 2 6 & 46.39 		& 2 5 6 & 47.91 \\
+1 2 & 3.26 	& 1 2 5 & 5.26 	& 1 2 6 & 5.22 	& 1 2 5 6 & 7.22 \\
+3 & 26.56 	& 3 5 & 27.94 	& 3 6 & 24.82 		& 3 5 6 & 25.02 \\
+1 3 & 1.11 	& 1 3 5 & 3.11 	& 1 3 6 & 1.60 	& 1 3 5 6 & 3.46 \\
+2 3 & 26.96 	& 2 3 5 & 28.53 	& 2 3 6 & 24.62 	& 2 3 5 6 & 25.11 \\
+1 2 3 & 2.51 	& 1 2 3 5 & 4.51 	& 1 2 3 6 & 3.28 	& 1 2 3 5 6 & 5.14 \\
+4 & 30.06 	& 4 5 & 31.62 	& 4 6 & 27.73 		& 4 5 & 29.50 \\
+1 4 & 3.19 	& 1 4 5 & 5.16 	& 1 4 6 & 4.70 	& 1 4 5 6 & 6.69 \\
+2 4 & 29.20 	& 2 4 5 & 30.82 	& 2 4 6 & 25.91 	& 2 4 5 6 & 27.74 \\
+1 2 4 & 4.99 	& 1 2 4 5 & 6.97 	& 1 2 4 6 & 6.63 	& 1 2 4 5 6 & 8.61 \\
+3 4 & 23.25 	& 3 4 5 & 25.23 	& 3 4 6 & 16.50 	& 3 4 5 6 & 18.42 \\
+1 3 4 & 3.09 	& 1 3 4 5 & 5.09 	& 1 3 4 6 & 3.35 	& 1 3 4 5 6 & 5.29 \\
+2 3 4 & 24.56 	& 2 3 4 5 & 26.53 	& 2 3 4 6 & 17.57 	& 2 3 4 5 6 & 19.51 \\
+1 2 3 4 & 4.49 	& 1 2 3 4 5 & 6.48 	& 1 2 3 4 6 & 5.07 	& 1 2 3 4 5 6 & 7.00 \\
+5 & 57.91 	& 6 & 57.95 	& 5 6 & 58.76 	&      &      \\
+
+\bottomrule
+\end{tabular}
+
+\end{table}
+
+```{r}
+# 选出前五个最佳变量子集
+all_models$Cp_gap <- abs(all_models$Cp - all_models$p)
+
+best5 <- all_models[order(all_models$Cp_gap), ][1:5,
+             c("variables","min_t","RMS","Cp","p","AIC","BIC")]
+
+best5
+```
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{子模型评价指标（筛选后的前五个最优组合）}
+\renewcommand{\arraystretch}{1.18}
+\begin{tabular}{l l r r r r r r}
+\toprule
+序号 & 变量组合 & min\_t & RMS & C\textsubscript{p} & p & AIC & BIC \\
+\midrule
+228 & X1, X2, X3, X6, X9, X14 & 1.893 & 31.765 & 5.808 & 6 & 601.28 & 618.03 \\
+250 & X1, X2, X3, X4, X6, X9, X14 & 0.252 & 31.745 & 7.743 & 7 & 603.20 & 622.05 \\
+255 & X1, X2, X3, X4, X5, X6, X9, X14 & 0.946 & 30.925 & 7.000 & 8 & 602.06 & 623.00 \\
+251 & X1, X2, X3, X5, X6, X9, X14 & 1.385 & 31.195 & 5.895 & 7 & 601.10 & 619.95 \\
+233 & X1, X2, X5, X6, X9, X14 & 1.413 & 32.220 & 7.363 & 6 & 602.98 & 619.74 \\
+\bottomrule
+\end{tabular}
+\end{threeparttable}
+\end{table}
+
+```{r}
+library(ggplot2)
+
+all_models$label_vars <- gsub("X", "", all_models$variables)
+little_models <- subset(all_models, Cp < 25)
+# 选出前 5 个模型（Cp 最接近 p）
+all_models$Cp_gap <- abs(all_models$Cp - all_models$p)
+best5 <- all_models[order(all_models$Cp_gap), ][1:5, ]
+best5$label_vars <- gsub("X", "", best5$variables)
+# ------- 绘制 Cp 散点图 + y = p 直线 -------
+p <- ggplot(little_models, aes(x = p, y = Cp)) +
+  geom_point(alpha = 0.7, size = 1) +
+  geom_abline(slope = 1, intercept = 0, color = "red", size = 1) +
+  coord_cartesian(ylim = c(0, 25)) +
+  labs(
+       x = "p",
+       y = "Cp") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_bw(base_size = 14)
+
+# ------- 添加前 5 个模型的变量标签 -------
+p <- p + 
+  geom_point(data = best5, aes(x = p, y = Cp), 
+             color = "blue", size = 3) +
+  geom_text(
+    data = best5,
+    aes(x = p, y = Cp, 
+        label = paste0("(", label_vars, ")")),
+    hjust = 1.1, vjust = 1.5,
+    size = 2.5,
+    color = "black"
+  )
+
+print(p)
+
+```
+
+![](images/ceceae8cdaceb57d927b1355d535ad0b.png)
+
+图例：（p,Cp)的散点图（限于Cp\<25的点）
+
+\begin{table}[H]
+\centering
+\begin{threeparttable}
+\caption{子模型评价指标（筛选后的前五个最优组合）}
+\renewcommand{\arraystretch}{1.18}
+\begin{tabular}{l l r r r r r r}
+\toprule
+序号 & 变量组合 & min\_t & RMS & C\textsubscript{p} & p & AIC & BIC \\
+\midrule
+228 & X1, X2, X3, X6, X9, X14 & 1.893 & 31.765 & 5.808 & 6 & 601.28 & 618.03 \\
+250 & X1, X2, X3, X4, X6, X9, X14 & 0.252 & 31.745 & 7.743 & 7 & 603.20 & 622.05 \\
+255 & X1, X2, X3, X4, X5, X6, X9, X14 & 0.946 & 30.925 & 7.000 & 8 & 602.06 & 623.00 \\
+251 & X1, X2, X3, X5, X6, X9, X14 & 1.385 & 31.195 & 5.895 & 7 & 601.10 & 619.95 \\
+233 & X1, X2, X5, X6, X9, X14 & 1.413 & 32.220 & 7.363 & 6 & 602.98 & 619.74 \\
+\bottomrule
+\end{tabular}
+\end{threeparttable}
+\end{table}
+
+由计算结果可知，全模型的RMS是所有模型中最小的，这说明了由全模型估计的$\sigma^2$ 比较精准，从而说明了：
+
+1.  全模型中几乎不含对死亡率完全没有解释能力的变量，说明了最初的变量选取是合适的；
+
+2.  可以由$C_p$ 统计量作为模型性能评估的标准。
+
+同时，由$C_p$ 准则得到的最优子集与基于AIC进行变量选择的结果基本一致，进一步说明了选择$X_1,X_2,X_3,X_6,X_9,X_{14}$ 是在研究死亡率与各因素关系这一问题上的最优变量子集。
