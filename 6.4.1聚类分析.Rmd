@@ -1,0 +1,146 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  pdf_document: default
+  html_notebook: default
+---
+
+# 数据处理
+
+```{r}
+# 用 latin1 读取“原始字节”（不试图解码成中文）
+raw <- readLines("6-4-1.txt", encoding = "latin1")
+
+# 把 GBK 编码的中文，转成真正的 UTF-8
+clean <- iconv(raw, from = "GBK", to = "UTF-8")
+
+clean 
+```
+
+```{r}
+tc <- textConnection(clean)
+
+df <- read.table(tc,
+                 header = FALSE,
+                 sep = "",
+                 stringsAsFactors = FALSE)
+```
+
+# 计算样本间距离
+
+首先计算各样本间的距离。方法为标准化数据后，计算两个样本间的欧式距离
+
+```{r}
+row.names(df)=df[,1]
+X=scale(df[,-1])
+d=dist(X) ##method = "euclidean"
+```
+
+# 系统聚类
+
+接下来使用最短距离法、最长距离法、类平均法和Wald法分别进行聚类，并比较结果。
+
+每种方法输出结果为并类过程和谱系聚类图。首先定义并类过程的函数：
+
+```{r}
+print_merge_process <- function(hc) {
+  n <- length(hc$labels)        # 原始样本个数
+  labels <- hc$labels
+  
+  decode <- function(z) {
+    if (z < 0) {
+      # 负数：原始样本，-z 是行号
+      labels[-z]
+    } else {
+      # 正数：已生成的类，用 C1, C2, ... 表示
+      paste0("C", z)
+    }
+  }
+  
+  cat("并类过程（method =", hc$method, "）\n")
+  for (i in 1:(n - 1)) {
+    left  <- hc$merge[i, 1]
+    right <- hc$merge[i, 2]
+    h     <- hc$height[i]
+    
+    cat("步骤", i, ": ",
+        decode(left), " + ", decode(right),
+        " -> C", i,
+        "   (高度 =", round(h, 4), ")\n", sep = "")
+  }
+}
+
+```
+
+## 最短距离法
+
+```{r}
+hc_min <- hclust(d, method="single")
+hclust(d, method="single")$merge
+plot(hclust(d, method="single"))
+print_merge_process(hc_min)
+```
+
+## 最大距离法
+
+```{r}
+hc_max <- hclust(d, method="complete")
+hclust(d, method="complete")$merge
+plot(hclust(d, method="complete"))
+print_merge_process(hc_max)
+```
+
+## 类平均法
+
+```{r}
+hc_ave <- hclust(d, method="average")
+hclust(d, method="average")$merge
+plot(hclust(d, method="average"))
+print_merge_process(hc_ave)
+```
+
+## Wald法
+
+```{r}
+hc_ward <- hclust(d, method="ward.D")
+hclust(d, method="ward.D")$merge
+plot(hclust(d, method="ward.D"))
+print_merge_process(hc_ward)
+```
+
+# 结果比较
+
+## 最短距离法
+
+-   即使两簇整体差异大，只要某两个点接近，也会被合并。
+
+    -   高度变化非常小，最高只有3.47
+
+## 最长距离法
+
+两簇只要有一个点很远，高度就大。
+
+-   高度显著大于最短距离法，最高达到 6.84
+
+-   与最短距离法相比，合并顺序变化明显
+
+-   对噪音和离群点敏感（因为是最大距离）
+
+## 类平均法
+
+-   消除了“最近点”和“最远点”的极端情况。
+
+    -   高度介于 single 与 complete 之间
+
+    -   折中、适用广泛
+
+## Ward法
+
+-   每次选择使“合并后 SSE 增量最小”的两个簇
+
+    -   高度非常大，达到11.6
+
+    -   合并顺序与类平均法相比差异极大
+
+-   最后几类的合并，高度跳度非常大，说明合并最后几类时方差增加很大
