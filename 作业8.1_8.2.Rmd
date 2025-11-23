@@ -1,0 +1,125 @@
+---
+title: "作业8.1_8.2"
+output:
+  pdf_document: default
+  html_notebook: default
+  word_document: default
+---
+
+# 8.1
+
+## (a)DW检验
+
+计算DW检验统计量，检验仅含有P时的误差项之间的一阶自相关
+
+### car包
+
+```{r}
+library(car)
+
+a=read.table("Tab8-4.txt",header=T) 
+# 示例线性回归
+model <- lm(H ~ P, data = a)
+
+# Durbin–Watson 检验
+dwtest_result <- durbinWatsonTest(model)
+
+dwtest_result
+```
+
+### lmtest包
+
+```{r}
+library(lmtest)
+
+dwtest(model)
+```
+
+## (b)游程检验
+
+```{r}
+
+# 1. 取残差
+e <- residuals(model)
+
+# 2. 转换为正负号
+signs <- ifelse(e > 0, 1, 0)   # 正为 1，负为 0
+
+# 3. 计算游程数 R
+runs <- 1 + sum(signs[-1] != signs[-length(signs)])
+
+# 4. 计算 n1（正残差个数），n2（负残差个数）
+n1 <- sum(signs == 1)
+n2 <- sum(signs == 0)
+n  <- n1 + n2
+
+# 5. 理论期望 E(R)
+ER <- 1 + 2 * n1 * n2 / n
+
+# 6. 理论方差 Var(R)
+VarR <- ( 2*n1*n2*(2*n1*n2 - n) ) / ( n^2 * (n - 1) )
+
+# 7. 标准差
+SDR <- sqrt(VarR)
+
+# 8. 输出结果
+cat("游程数 R =", runs, "\n")
+cat("E(R)     =", ER, "\n")
+cat("SD(R)    =", SDR, "\n")
+
+```
+
+# 8.2
+
+石油产量的时间序列数据
+
+## (a)DW检验统计量
+
+```{r}
+library(car)
+
+
+b=read.table("Tab6-19.txt",header=T) 
+# 示例线性回归
+model2 <- lm(log(Barrels) ~ Year, data = b)
+
+# Durbin–Watson 检验
+dwtest_result2 <- durbinWatsonTest(model2)
+
+dwtest_result2
+```
+
+```{r}
+dwtest(model2)
+```
+
+## (b)
+
+```{r}
+e2 <- residuals(model2)
+
+# 2. 转换为正负号
+signs2 <- ifelse(e2 > 0, 1, 0)   # 正为 1，负为 0
+
+# 3. 计算游程数 R  去掉首和去掉尾的序列进行同一位置的比较——计算游程数算法
+runs2 <- 1 + sum(signs2[-1] != signs2[-length(signs2)])
+
+# 4. 计算 n1（正残差个数），n2（负残差个数）
+n12 <- sum(signs2 == 1)
+n22 <- sum(signs2 == 0)
+n2  <- n12 + n22
+
+# 5. 理论期望 E(R)
+ER2 <- 1 + 2 * n12 * n22 / n2
+
+# 6. 理论方差 Var(R)
+VarR2 <- ( 2*n12*n22*(2*n12*n22 - n2) ) / ( n2^2 * (n2 - 1) )
+
+# 7. 标准差
+SDR2 <- sqrt(VarR2)
+
+# 8. 输出结果
+cat("游程数 R =", runs2, "\n")
+cat("E(R)     =", ER2, "\n")
+cat("SD(R)    =", SDR2, "\n")
+```
